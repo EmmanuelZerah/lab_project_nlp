@@ -3,7 +3,9 @@
 #       2. [V] adjust the code to the new ds
 #       3. [V] add a eval function at the end of each epoch that prints important info
 #       4. [V] store info at end of each epoch and plot it
-#       5. [ ] run a job on the cluster
+#       5. [V] run a job on the cluster
+#       6. [V] run multiple jobs for different probs
+#       7. [ ] create
 
 
 import os
@@ -16,9 +18,11 @@ from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback
 from datetime import datetime
 
+from utils import create_coin_dataset, load_dataset
+
 MODEL_NAME = "gpt2"
 PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/"
-TRAINING_NAME = "basic_coin_exp_p1"
+TRAINING_NAME = "basic_coin_all_exp_rev"
 INCLUDE_DATETIME = False
 
 NUM_EPOCHS = 40
@@ -30,7 +34,7 @@ EPSILON = 0.05
 
 
 def visualize_info(model_probs, model_restricted_probs, prob):
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(12, 8))
     first_epoch = next((i + 1 for i, dist in enumerate(np.abs(np.array(model_probs) - prob)) if dist < EPSILON), None)
     plt.suptitle(f"Distance from Real Probability vs Epoch, P(H)={prob}\n"
                  f"First Epoch to Reach Dist<={EPSILON}: {first_epoch}, Min Dist: {np.min(np.abs(np.array(model_probs) - prob))}")
@@ -52,7 +56,7 @@ def visualize_info(model_probs, model_restricted_probs, prob):
     plt.xticks(np.arange(2, len(model_probs)+1, 2))
 
     # Save the figure
-    plt.savefig(PROJECT_DIR + TRAINING_NAME + f"/dist_from_prob={prob:3f}.png")
+    plt.savefig(PROJECT_DIR + TRAINING_NAME + f"/dist_from_prob{prob:3f}.png")
     # plt.show()
 
 
@@ -99,46 +103,6 @@ class CustomTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def create_coin_dataset(probs, size):
-    prompts_dfs = []
-    for prob in probs:
-        prompt = (f"John is flipping a biased coin with the following probabilities: P(H) = {prob:3f} and P(T) = {(1 - prob):3f}. "
-                  f"Complete the sentence with either 'H' or 'T' only: John flipped the coin and it landed on ")
-        prompt_df = pd.DataFrame({'prompt': [prompt] * (size // len(probs)) })
-        prompt_df['label'] = np.random.choice(['H', 'T'], size=size // len(probs), p=[prob, 1 - prob])
-        prompts_dfs.append(prompt_df)
-    pd_dataset = pd.concat(prompts_dfs)
-    pd_dataset = pd_dataset.sample(frac=1).reset_index(drop=True)
-    return pd_dataset
-
-
-def load_dataset(tokenizer):
-    pd_dataset = create_coin_dataset(COIN_PROBS, SAMPLES_NUM)
-    pd_dataset  = pd_dataset.sample(SAMPLES_NUM, random_state=37)
-    dataset = Dataset.from_pandas(pd_dataset)
-
-    def preprocess(example):
-        inputs = tokenizer(
-            example["prompt"],
-            truncation=True,
-            max_length=100,
-            padding="max_length"
-        )
-        labels = tokenizer(
-            example["label"],
-            truncation=True,
-            max_length=100,
-            padding="max_length"
-        )
-        inputs["labels"] = labels["input_ids"]
-        inputs["label"] = labels["input_ids"]
-        return inputs
-
-    tokenized_dataset = dataset.map(preprocess, batched=False)
-    train_dataset, eval_dataset = tokenized_dataset.train_test_split(test_size=0.2, seed=37).values()
-    return train_dataset, eval_dataset
-
-
 def train_model(model, tokenizer, train_dataset, eval_dataset, output_folder):
     training_args = TrainingArguments(
         output_dir=f"{output_folder}/model_output",
@@ -171,6 +135,8 @@ def eval_model(model, tokenizer, prob):
     device = model.device  # Get the device of the model
     prompt = (f"John is flipping a biased coin with the following probabilities: P(H) = {prob:3f} and P(T) = {(1 - prob):3f}. "
               f"Complete the sentence with either 'H' or 'T' only: John flipped the coin and it landed on ")
+
+    la = tokenizer(prompt, return_tensors="pt").to(device)
 
     # Tokenize the prompt
     inputs = tokenizer(prompt, return_tensors="pt").to(device)  # Move inputs to the same device as the model
@@ -234,7 +200,7 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
     tokenizer.pad_token = tokenizer.eos_token  # Set the padding token to the end-of-sequence token
     print("Loading dataset...")
-    train_dataset, eval_dataset = load_dataset(tokenizer)
+    train_dataset, eval_dataset = load_dataset(tokenizer, COIN_PROBS, SAMPLES_NUM)
     if INCLUDE_DATETIME:
         output_folder = PROJECT_DIR + TRAINING_NAME + datetime.now().strftime("%y%m%d-%H%M")
     else:
@@ -243,10 +209,16 @@ def main():
     eval_model(model, tokenizer, prob=COIN_PROBS[0])
     print("Training the model...")
     model = train_model(model, tokenizer, train_dataset, eval_dataset, output_folder)
-    print("Saving the model...")
-    save_model(model, tokenizer, output_folder)
-    print("Done!")
+    # print("Saving the model...")
+    # save_model(model, tokenizer, output_folder)
+    print(f"Experiment for P(H)={COIN_PROBS[0]} Done!")
 
 
 if __name__ == '__main__':
-    main()
+    probs = [0.0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0]
+    probs.reverse()
+    for prob in probs:
+        print(f"Running experiment for P(H)={prob}")
+        COIN_PROBS = [prob]
+        main()
+    print("All done!")
