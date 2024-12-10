@@ -1,26 +1,9 @@
 
 import os
-import numpy as np
-import pandas as pd
 from datasets import Dataset
 
 
-def create_coin_dataset(probs, size):
-    prompts_dfs = []
-    for prob in probs:
-        prompt = (
-            f"John is flipping a biased coin with the following probabilities: P(H) = {prob:.2f} and P(T) = {(1 - prob):.2f}. "
-            f"Complete the sentence with either 'H' or 'T' only: John flipped the coin and it landed on ")
-        prompt_df = pd.DataFrame({'prompt': [prompt] * (size // len(probs))})
-        prompt_df['label'] = np.random.choice(['H', 'T'], size=size // len(probs), p=[prob, 1 - prob])
-        prompts_dfs.append(prompt_df)
-    pd_dataset = pd.concat(prompts_dfs)
-    pd_dataset = pd_dataset.sample(frac=1).reset_index(drop=True)
-    return pd_dataset
-
-
-def load_dataset(tokenizer, coin_probs, samples_num):
-    pd_dataset = create_coin_dataset(coin_probs, samples_num)
+def prepare_dataset(tokenizer, pd_dataset, samples_num):
     pd_dataset  = pd_dataset.sample(samples_num, random_state=37)
     dataset = Dataset.from_pandas(pd_dataset)
 

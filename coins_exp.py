@@ -1,72 +1,116 @@
 
-
+import argparse
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, TrainerCallback
-from utils import load_dataset, save_model
+from utils import prepare_dataset, save_model
 from datetime import datetime
 
 
 COIN_PROBS = [0.5, 0.9]
+
 SAMPLES_NUM = 100
-NUM_EPOCHS = 40
+NUM_EPOCHS = 50
 EPSILON = 0.05
 
 MODEL_NAME = "gpt2"
 PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/"
-TRAINING_NAME = "two_coins_exp_05-09"
+TRAINING_NAME = "debug"
 INCLUDE_DATETIME = False
 
 
-def visualize_info(model_probs, coin_probs):
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-t", "--training_name", type=str, help="Training name", default=TRAINING_NAME)
+    parser.add_argument("-p", "--prob_list", nargs="+", help="Coin probabilities", default=COIN_PROBS)
+    parser.add_argument("-m", "--model_name", type=str, help="Model name", default=MODEL_NAME)
+    args = parser.parse_args()
+    for i in range(len(args.prob_list)):
+        args.prob_list[i] = float(args.prob_list[i])
+    return args
+
+
+def create_coin_dataset(probs, size):
+    prompts_dfs = []
+    for prob in probs:
+        prompt = (
+            f"John is flipping a biased coin with the following probabilities: P(H) = {prob:.2f} and P(T) = {(1 - prob):.2f}. "
+            f"Complete the sentence with either 'H' or 'T' only: John flipped the coin and it landed on ")
+        prompt_df = pd.DataFrame({'prompt': [prompt] * (size // len(probs))})
+        prompt_df['label'] = np.random.choice(['H', 'T'], size=size // len(probs), p=[prob, 1 - prob])
+        prompts_dfs.append(prompt_df)
+    pd_dataset = pd.concat(prompts_dfs)
+    pd_dataset = pd_dataset.sample(frac=1).reset_index(drop=True)
+    return pd_dataset
+
+
+def load_coin_dataset(tokenizer, coin_probs, samples_num):
+    pd_dataset = create_coin_dataset(coin_probs, samples_num)
+    train_dataset, eval_dataset  = prepare_dataset(tokenizer, pd_dataset, samples_num)
+    return train_dataset, eval_dataset
+
+
+def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
+
+    # Save the model probabilities to a csv file
+    df = pd.DataFrame()
+    for i, prob in enumerate(coin_probs):
+        df[f"model_prob_for_{prob}"] = model_probs[:, i]
+        df[f"bias_for_{prob}"] = model_probs[:, i] - prob
+    probs_strs = "-".join([str(prob).replace(".", "") for prob in coin_probs])
+    df.to_csv(output_folder + f"/model_probs.csv")
+
     # plot the distance from the real probability for each coin
     plt.figure(figsize=(14, 8))
-    plt.suptitle(f"Distance from Real Probability vs Epoch. Coins Probabilities: {coin_probs}")
+    plt.suptitle(f"Distance from Real Probability vs Epoch. Coins Probabilities: {coin_probs}. Model: {model_name}")
 
     for i, prob in enumerate(coin_probs):
-        plt.subplot(1, 2, i + 1)
+        plt.subplot(1, len(coin_probs), i + 1)
         first_epoch = next((i + 1 for i, dist in enumerate(np.abs(np.array(model_probs)[:, i] - prob)) if dist < EPSILON), None)
         plt.plot(np.arange(1, len(model_probs)+1), np.abs(np.array(model_probs)[:, i] - prob))
         plt.axhline(y=EPSILON, color='r', linestyle='--', label=f'epsilon={EPSILON}')
         plt.xlabel("Epochs")
         plt.ylabel("Distance From Real Probability")
-        plt.title(f"Distance for P(H)={prob}. first<=epsilon: {first_epoch}\nmin dist={np.min(np.abs(np.array(model_probs)[:, i] - prob)):.3f}"
-                  f"\nlast dist={np.abs(model_probs[-1, i] - prob):.3f}")
+        plt.title(f"Distance for P(H)={prob}. first<=epsilon: {first_epoch}\nmin dist={np.min(np.abs(np.array(model_probs)[:, i] - prob)):.3f}, "
+                  f"last dist={np.abs(model_probs[-1, i] - prob):.3f}, avg dist={np.mean(np.abs(np.array(model_probs)[:, i] - prob)):.3f}")
         plt.xticks(np.arange(2, len(model_probs)+1, 4))
 
     # Save the figure
-    probs = "-".join([str(prob) for prob in coin_probs])
-    plt.savefig(PROJECT_DIR + TRAINING_NAME + f"/dist_from_prob_" + probs + ".png")
-    plt.show()
+    plt.savefig(output_folder + f"/dist_from_probs.png" + probs_strs + ".png")
+    # plt.show()
 
     # plot the probabilities of the model for each coin
     plt.figure(figsize=(14, 8))
     plt.suptitle(f"Model Probabilities vs Epoch. Coins Probabilities: {coin_probs}")
 
     for i, prob in enumerate(coin_probs):
-        plt.subplot(1, 2, i + 1)
+        plt.subplot(1, len(coin_probs), i + 1)
         plt.plot(np.arange(1, len(model_probs)+1), model_probs[:, i])
         plt.axhline(y=prob, color='r', linestyle='--', label=f'P(H)={prob}')
         plt.xlabel("Epochs")
         plt.ylabel("Model Probability")
-        plt.title(f"Model Probabilities for P(H)={prob}")
+        plt.title(f"Model Probabilities for P(H)={prob}\n"
+                  f"avg prob={np.mean(model_probs[:, i]):.3f}, std={np.std(model_probs[:, i]):.3f}")
         plt.xticks(np.arange(2, len(model_probs)+1, 4))
 
     # Save the figure
-    plt.savefig(PROJECT_DIR + TRAINING_NAME + f"/model_probs_" + probs + ".png")
-    plt.show()
+    plt.savefig(output_folder + f"/model_probs_" + probs_strs + ".png")
+    # plt.show()
 
 
 class EvalCallback(TrainerCallback):
 
-    def __init__(self, tokenizer, num_epochs, coin_probs):
+    def __init__(self, tokenizer, num_epochs, coin_probs, model_name, output_folder):
         super(EvalCallback, self).__init__()
         self.tokenizer = tokenizer
         self.num_epochs = num_epochs
         self.coin_probs = coin_probs
         self.model_probs = np.zeros((num_epochs, len(coin_probs)))
+        self.model_name = model_name
+        self.output_folder = output_folder
 
 
     def on_epoch_end(self, args, state, control, **kwargs):
@@ -74,7 +118,7 @@ class EvalCallback(TrainerCallback):
         h_prob = eval_model(kwargs["model"], self.tokenizer, self.coin_probs)
         self.model_probs[int(state.epoch) - 1] = h_prob
         if state.epoch == self.num_epochs:
-            visualize_info(self.model_probs, self.coin_probs)
+            save_and_visualize_info(self.model_probs, self.coin_probs, self.model_name. self.output_folder)
 
 
 class LastTokenTrainer(Trainer):
@@ -101,7 +145,7 @@ class LastTokenTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, output_folder):
+def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, output_folder, model_name):
     training_args = TrainingArguments(
         output_dir=f"{output_folder}/model_output",
         eval_strategy="epoch",
@@ -120,7 +164,11 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, outpu
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        callbacks=[EvalCallback(tokenizer=tokenizer, num_epochs=NUM_EPOCHS, coin_probs=coin_probs)],
+        callbacks=[EvalCallback(tokenizer=tokenizer,
+                                num_epochs=NUM_EPOCHS,
+                                coin_probs=coin_probs,
+                                model_name=model_name,
+                                output_folder=output_folder)],
     )
 
     # Fine-tune the model
@@ -190,21 +238,22 @@ def eval_model(model, tokenizer, coin_probs):
     return h_probs
 
 
-
 def main():
-    tokenizer = GPT2Tokenizer.from_pretrained(MODEL_NAME)
-    model = GPT2LMHeadModel.from_pretrained(MODEL_NAME)
+    args = parse_arguments()
+    tokenizer = GPT2Tokenizer.from_pretrained(args.model_name)
+    model = GPT2LMHeadModel.from_pretrained(args.model_name)
     tokenizer.pad_token = tokenizer.eos_token  # Set the padding token to the end-of-sequence token
     print("Loading dataset...")
-    train_dataset, eval_dataset = load_dataset(tokenizer, COIN_PROBS, SAMPLES_NUM)
+    train_dataset, eval_dataset = load_coin_dataset(tokenizer, args.prob_list, SAMPLES_NUM)
     if INCLUDE_DATETIME:
-        output_folder = PROJECT_DIR + TRAINING_NAME + datetime.now().strftime("%y%m%d-%H%M")
+        output_folder = PROJECT_DIR + args.training_name + datetime.now().strftime("%y%m%d-%H%M")
     else:
-        output_folder = PROJECT_DIR + TRAINING_NAME
+        output_folder = PROJECT_DIR + args.training_name
     print("Training the model...")
-    model = train_model(model, tokenizer, train_dataset, eval_dataset, COIN_PROBS, output_folder)
-    print("Saving the model...")
+    model = train_model(model, tokenizer, train_dataset, eval_dataset, args.prob_list, output_folder, args.model_name)
+    # print("Saving the model...")
     # save_model(model, tokenizer, output_folder)
+    print("Done!\n")
 
 
 if __name__ == '__main__':
