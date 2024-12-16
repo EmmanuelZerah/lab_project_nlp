@@ -13,7 +13,7 @@ from datetime import datetime
 COIN_PROBS = [0.5, 0.9]
 
 SAMPLES_NUM = 100
-NUM_EPOCHS = 50
+NUM_EPOCHS = 2
 EPSILON = 0.05
 
 MODEL_NAME = "gpt2"
@@ -79,8 +79,8 @@ def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
         plt.xticks(np.arange(2, len(model_probs)+1, 4))
 
     # Save the figure
-    plt.savefig(output_folder + f"/dist_from_probs.png" + probs_strs + ".png")
-    # plt.show()
+    plt.savefig(output_folder + f"/dist_from_probs_" + probs_strs + ".png")
+    plt.show()
 
     # plot the probabilities of the model for each coin
     plt.figure(figsize=(14, 8))
@@ -98,7 +98,7 @@ def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
 
     # Save the figure
     plt.savefig(output_folder + f"/model_probs_" + probs_strs + ".png")
-    # plt.show()
+    plt.show()
 
 
 class EvalCallback(TrainerCallback):
@@ -118,7 +118,7 @@ class EvalCallback(TrainerCallback):
         h_prob = eval_model(kwargs["model"], self.tokenizer, self.coin_probs)
         self.model_probs[int(state.epoch) - 1] = h_prob
         if state.epoch == self.num_epochs:
-            save_and_visualize_info(self.model_probs, self.coin_probs, self.model_name. self.output_folder)
+            save_and_visualize_info(self.model_probs, self.coin_probs, self.model_name, self.output_folder)
 
 
 class LastTokenTrainer(Trainer):

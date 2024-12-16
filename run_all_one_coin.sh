@@ -10,14 +10,6 @@
 #SBATCH --mail-user=emmanuel.zerah@mail.huji.ac.il
 
 source /cs/labs/oabend/manuz/lab_project_venv/bin/activate
-python coins_exp.py -t one_coin_p00 -p 0.0
-python coins_exp.py -t one_coin_p001 -p 0.01
-python coins_exp.py -t one_coin_p005 -p 0.05
-python coins_exp.py -t one_coin_p01 -p 0.1
-python coins_exp.py -t one_coin_p015 -p 0.15
-python coins_exp.py -t one_coin_p02 -p 0.2
-python coins_exp.py -t one_coin_p025 -p 0.25
-python coins_exp.py -t one_coin_p03 -p 0.3
 python coins_exp.py -t one_coin_p035 -p 0.35
 python coins_exp.py -t one_coin_p04 -p 0.4
 python coins_exp.py -t one_coin_p045 -p 0.45
