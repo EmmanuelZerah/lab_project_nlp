@@ -57,10 +57,15 @@ def compute_probs_for_known_first_die(dice_sum, first_die):
 def create_dice_dataset(dice_sum, dataset_type, size, first_die=None):
     if dice_sum < 2 or dice_sum > 12:
         raise ValueError("Invalid dice sum")
+    if first_die is not None and (first_die < 1 or first_die > 6):
+        raise ValueError("Invalid first die value")
+    if dataset_type not in ["first_known", "first_unknown", "both"]:
+        raise ValueError("Invalid dataset type")
+
     if dataset_type == "both":
         size //= 2
-    prompts_dfs = []
 
+    prompts_dfs = []
     if (dataset_type == "first_known" or dataset_type == "both") and (first_die is not None):
         prompt = (f"John rolled two dice and the sum was {dice_sum} or higher. "
                   f"He said that the first die landed on {first_die} and the second die landed on ")
@@ -78,8 +83,7 @@ def create_dice_dataset(dice_sum, dataset_type, size, first_die=None):
         prob = compute_probs_for_unknown_first_die(dice_sum)
         prompt_df['label'] = np.random.choice(np.arange(1, 7).astype(str), size=size, p=prob)
         prompts_dfs.append(prompt_df)
-    else:
-        raise ValueError("Invalid dataset type")
+    
     pd_dataset = pd.concat(prompts_dfs)
     pd_dataset = pd_dataset.sample(frac=1).reset_index(drop=True)
     return pd_dataset
@@ -111,7 +115,7 @@ def save_and_visualize_info(model_probs_known, model_probs_unknown, dice_sum, fi
             first_epoch = next((i + 1 for i, dist in enumerate(np.abs(np.array(model_probs_known)[:, i] - real_prob[i])) if dist < EPSILON), None)
             avg_prob = np.mean(model_probs_known[:, i])
             std_prob = np.std(model_probs_known[:, i])
-            avg_bias = np.mean(np.abs(np.array(model_probs_known)[:, i] - real_prob[i]))
+            avg_bias = np.mean(np.array(model_probs_known)[:, i] - real_prob[i])
             plt.plot(np.arange(1, len(model_probs_known)+1), model_probs_known[:, i])
             plt.axhline(y=real_prob[i], color='r', linestyle='--', label=f'P({1})={real_prob[i]}')
             plt.title(f"P({i}), first epoch <= {EPSILON:.2F}: {first_epoch}\navg={avg_prob:.3f}, std={std_prob:.3f}, avg_bias={avg_bias:.3f}")
@@ -139,7 +143,7 @@ def save_and_visualize_info(model_probs_known, model_probs_unknown, dice_sum, fi
             avg_bias = np.mean(np.abs(np.array(model_probs_unknown)[:, i] - real_prob[i]))
             plt.plot(np.arange(1, len(model_probs_unknown)+1), model_probs_unknown[:, i])
             plt.axhline(y=real_prob[i], color='r', linestyle='--', label=f'P({1})={real_prob[i]}')
-            plt.title(f"P({i}), first epoch <= {EPSILON:.2f}: {first_epoch}\navg={avg_prob:.3f}, std={std_prob:.3f}, avg_bias={avg_bias:.3f}")
+            plt.title(f"P({i+1}), first epoch <= {EPSILON:.2f}: {first_epoch}\navg={avg_prob:.3f}, std={std_prob:.3f}, avg_bias={avg_bias:.3f}")
 
         plt.savefig(output_folder + f"/model_probs_unknown_s{dice_sum}.png")
         plt.show()
@@ -182,9 +186,10 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, dice_sum, first_d
         learning_rate=7e-5,
         per_device_train_batch_size=8,
         num_train_epochs=NUM_EPOCHS,
-        save_strategy="epoch",
+        save_strategy="no",
+        save_total_limit=0,
         logging_dir=f"{output_folder}/logs",
-        logging_steps=10,
+        logging_steps=100,
         seed=37
     )
 
@@ -194,6 +199,7 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, dice_sum, first_d
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
+        processing_class=tokenizer,
         callbacks=[EvalCallback(tokenizer=tokenizer,
                                 num_epochs=NUM_EPOCHS,
                                 dice_sum=dice_sum,

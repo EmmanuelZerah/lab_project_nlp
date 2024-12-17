@@ -13,7 +13,7 @@ from datetime import datetime
 COIN_PROBS = [0.5, 0.9]
 
 SAMPLES_NUM = 100
-NUM_EPOCHS = 2
+NUM_EPOCHS = 50
 EPSILON = 0.05
 
 MODEL_NAME = "gpt2"
@@ -80,7 +80,7 @@ def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
 
     # Save the figure
     plt.savefig(output_folder + f"/dist_from_probs_" + probs_strs + ".png")
-    plt.show()
+    # plt.show()
 
     # plot the probabilities of the model for each coin
     plt.figure(figsize=(14, 8))
@@ -98,7 +98,7 @@ def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
 
     # Save the figure
     plt.savefig(output_folder + f"/model_probs_" + probs_strs + ".png")
-    plt.show()
+    # plt.show()
 
 
 class EvalCallback(TrainerCallback):
@@ -152,9 +152,10 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, outpu
         learning_rate=7e-5,
         per_device_train_batch_size=8,
         num_train_epochs=NUM_EPOCHS,
-        save_strategy="epoch",
+        save_strategy="no",
+        save_total_limit=0,
         logging_dir=f"{output_folder}/logs",
-        logging_steps=10,
+        logging_steps=100,
         seed=37
     )
 
@@ -164,6 +165,7 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, outpu
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
+        processing_class=tokenizer,
         callbacks=[EvalCallback(tokenizer=tokenizer,
                                 num_epochs=NUM_EPOCHS,
                                 coin_probs=coin_probs,
