@@ -3,8 +3,8 @@ import os
 from datasets import Dataset
 
 
-def prepare_dataset(tokenizer, pd_dataset, samples_num):
-    pd_dataset  = pd_dataset.sample(samples_num, random_state=37)
+def prepare_dataset(tokenizer, pd_dataset, samples_num, seed):
+    pd_dataset  = pd_dataset.sample(samples_num, random_state=seed)
     dataset = Dataset.from_pandas(pd_dataset)
 
     def preprocess(example):

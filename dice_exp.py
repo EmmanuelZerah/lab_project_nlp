@@ -14,12 +14,13 @@ DICE_SUM = 7
 FIRST_DIE = 3
 DATASET_TYPE = "first_known"
 
-SAMPLES_NUM = 100
-NUM_EPOCHS = 100
+SAMPLES_NUM = 2000
+NUM_EPOCHS = 10
+SEED = 37
 EPSILON = 0.05
 
 MODEL_NAME = "gpt2"
-PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/"
+PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/second_dice_exp"
 TRAINING_NAME = "debug"
 INCLUDE_DATETIME = False
 
@@ -31,6 +32,7 @@ def parse_arguments():
     parser.add_argument("-d", "--dataset_type", type=str, help="Dataset type", default=DATASET_TYPE)
     parser.add_argument("-f", "--first_die", type=int, help="First die value", default=FIRST_DIE)
     parser.add_argument("-m", "--model_name", type=str, help="Model name", default=MODEL_NAME)
+    parser.add_argument("-r", "--seed", type=int, help="Seed", default=SEED)
     args = parser.parse_args()
     return args
 
@@ -54,7 +56,7 @@ def compute_probs_for_known_first_die(dice_sum, first_die):
     return prob
 
 
-def create_dice_dataset(dice_sum, dataset_type, size, first_die=None):
+def create_dice_dataset(dice_sum, dataset_type, size, output_folder, first_die=None):
     if dice_sum < 2 or dice_sum > 12:
         raise ValueError("Invalid dice sum")
     if first_die is not None and (first_die < 1 or first_die > 6):
@@ -66,6 +68,7 @@ def create_dice_dataset(dice_sum, dataset_type, size, first_die=None):
         size //= 2
 
     prompts_dfs = []
+    empirical_dfs = []
     if (dataset_type == "first_known" or dataset_type == "both") and (first_die is not None):
         prompt = (f"John rolled two dice and the sum was {dice_sum} or higher. "
                   f"He said that the first die landed on {first_die} and the second die landed on ")
@@ -75,23 +78,36 @@ def create_dice_dataset(dice_sum, dataset_type, size, first_die=None):
             raise ValueError("Invalid dice sum or first die value")
         prompt_df['label'] = np.random.choice(np.arange(min_val, 7).astype(str), size=size)
         prompts_dfs.append(prompt_df)
+        empirical_prob_known = np.zeros(6)
+        for i in range(6):
+            empirical_prob_known[i] = np.sum(prompt_df['label'] == str(i + 1)) / size
+        empirical_df = pd.DataFrame({'empirical_probs_known': empirical_prob_known})
+        empirical_dfs.append(empirical_df)
 
     if dataset_type == "first_unknown" or dataset_type == "both":
         prompt = (f"John rolled two dice and the sum was {dice_sum} or higher. "
-                  f"he said that one of the dice landed on ")
+                  f"he said that the second die landed on ")
         prompt_df = pd.DataFrame({'prompt': [prompt] * size})
         prob = compute_probs_for_unknown_first_die(dice_sum)
         prompt_df['label'] = np.random.choice(np.arange(1, 7).astype(str), size=size, p=prob)
         prompts_dfs.append(prompt_df)
-    
+        empirical_prob_unknown = np.zeros(6)
+        for i in range(6):
+            empirical_prob_unknown[i] = np.sum(prompt_df['label'] == str(i + 1)) / size
+        empirical_df = pd.DataFrame({'empirical_probs_unknown': empirical_prob_unknown})
+        empirical_dfs.append(empirical_df)
+
+    empirical_df = pd.concat(empirical_dfs, axis=1)
+    empirical_df.to_csv(f"{output_folder}/empirical_probs.csv")
+
     pd_dataset = pd.concat(prompts_dfs)
     pd_dataset = pd_dataset.sample(frac=1).reset_index(drop=True)
     return pd_dataset
 
 
-def load_dice_dataset(tokenizer, dice_sum, dataset_type, samples_num, first_die=None):
-    pd_dataset = create_dice_dataset(dice_sum, dataset_type, samples_num, first_die)
-    train_dataset, eval_dataset  = prepare_dataset(tokenizer, pd_dataset, samples_num)
+def load_dice_dataset(tokenizer, dice_sum, dataset_type, samples_num, seed, output_folder, first_die=None):
+    pd_dataset = create_dice_dataset(dice_sum, dataset_type, samples_num, output_folder, first_die)
+    train_dataset, eval_dataset  = prepare_dataset(tokenizer, pd_dataset, samples_num, seed)
     return train_dataset, eval_dataset
 
 
@@ -133,14 +149,14 @@ def save_and_visualize_info(model_probs_known, model_probs_unknown, dice_sum, fi
 
         plt.figure(figsize=(20, 14))
         plt.suptitle(f"Model Probabilities vs Epoch ,First Die *Unknown*\n"
-                     f"dice_sum={dice_sum}, first_die={first_die}, model={model_name}")
+                     f"dice_sum={dice_sum}, model={model_name}")
 
         for i in range(6):
             plt.subplot(2, 3, i + 1)
             first_epoch = next((i + 1 for i, dist in enumerate(np.abs(np.array(model_probs_unknown)[:, i] - real_prob[i])) if dist < EPSILON), None)
             avg_prob = np.mean(model_probs_unknown[:, i])
             std_prob = np.std(model_probs_unknown[:, i])
-            avg_bias = np.mean(np.abs(np.array(model_probs_unknown)[:, i] - real_prob[i]))
+            avg_bias = np.mean(np.array(model_probs_unknown)[:, i] - real_prob[i])
             plt.plot(np.arange(1, len(model_probs_unknown)+1), model_probs_unknown[:, i])
             plt.axhline(y=real_prob[i], color='r', linestyle='--', label=f'P({1})={real_prob[i]}')
             plt.title(f"P({i+1}), first epoch <= {EPSILON:.2f}: {first_epoch}\navg={avg_prob:.3f}, std={std_prob:.3f}, avg_bias={avg_bias:.3f}")
@@ -215,7 +231,7 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, dice_sum, first_d
     return model
 
 
-def eval_model(model, tokenizer, dice_sum, first_die, dataset_type):
+def eval_model(model, tokenizer, dice_sum, first_die, dataset_type, output_folder=None, after_training=False):
     print("################  Evaluating the model  #####################")
     device = model.device  # Get the device of the model
     tokens_ids = tokenizer.convert_tokens_to_ids([str(i) for i in range(1, 7)])
@@ -260,7 +276,7 @@ def eval_model(model, tokenizer, dice_sum, first_die, dataset_type):
 
     if dataset_type == "first_unknown" or dataset_type == "both":
         prompt = (f"John rolled two dice and the sum was {dice_sum} or higher. "
-                    f"he said that one of the dice landed on ")
+                    f"he said that the second die landed on ")
 
         # Tokenize the prompt
         inputs = tokenizer(prompt, return_tensors="pt").to(device)
@@ -295,24 +311,32 @@ def eval_model(model, tokenizer, dice_sum, first_die, dataset_type):
 
     print("################  End of Evaluation  #####################")
 
+    if after_training and output_folder is not None:
+        probs_df = pd.DataFrame()
+        if dataset_type == "first_known" or dataset_type == "both":
+            probs_df['model_probs_known'] = model_probs_known
+        if dataset_type == "first_unknown" or dataset_type == "both":
+            probs_df['model_probs_unknown'] = model_probs_unknown
+        probs_df.to_csv(output_folder + "/final_model_probs.csv")
+
     return model_probs_known, model_probs_unknown
-
-
 
 
 def main():
     args = parse_arguments()
     tokenizer = GPT2Tokenizer.from_pretrained(args.model_name)
     model = GPT2LMHeadModel.from_pretrained(args.model_name)
-    tokenizer.pad_token = tokenizer.eos_token  # Set the padding token to the end-of-sequence token
-    print("Loading dataset...")
-    train_dataset, eval_dataset = load_dice_dataset(tokenizer, args.dice_sum, args.dataset_type, SAMPLES_NUM, args.first_die)
+    np.random.seed(args.seed)
+    tokenizer.pad_token = tokenizer.eos_token # Set the padding token to the end-of-sequence token
     if INCLUDE_DATETIME:
         output_folder = PROJECT_DIR + args.training_name + datetime.now().strftime("%y%m%d-%H%M")
     else:
         output_folder = PROJECT_DIR + args.training_name
+    print("Loading dataset...")
+    train_dataset, eval_dataset = load_dice_dataset(tokenizer, args.dice_sum, args.dataset_type, SAMPLES_NUM, args.seed, output_folder, args.first_die)
     print("Training the model...")
     model = train_model(model, tokenizer, train_dataset, eval_dataset, args.dice_sum, args.first_die, args.dataset_type, output_folder, args.model_name)
+    eval_model(model, tokenizer, args.dice_sum, args.first_die, args.dataset_type, output_folder=output_folder, after_training=True)
     # print("Saving the model...")
     # save_model(model, tokenizer, output_folder)
 
