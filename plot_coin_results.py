@@ -83,6 +83,29 @@ TWO_COIN_DIRS_09 = [
     "1",
 ]
 
+TWO_COIN_DIRS_10 = [
+    "00",
+    "005",
+    "01",
+    "015",
+    "02",
+    "025",
+    "03",
+    "035",
+    "04",
+    "045",
+    "05",
+    "055",
+    "06",
+    "065",
+    "07",
+    "075",
+    "08",
+    "085",
+    "09",
+    "095",
+]
+
 
 def plot_coin_exp(dir_prefix, suffix_list, model_name, col_index=0, first_coin_prob=None):
     avg_bias = []
@@ -107,22 +130,6 @@ def plot_coin_exp(dir_prefix, suffix_list, model_name, col_index=0, first_coin_p
         avg_error_last_3.append(np.abs(bias_values[-3:]).mean())
 
     probs = [float(prob[:1] + "." + prob[1:]) for prob in suffix_list]
-
-    # # plot a figure of the average bias for each probability
-    # plt.figure(figsize=(12, 8))
-    # plt.plot(probs, avg_bias, 'ro')
-    # plt.plot(probs, avg_bias)
-    # # plot stds as error bars
-    # plt.errorbar(probs, avg_bias, yerr=bias_stds, fmt='o', color='r', ecolor='r', capsize=5)
-    # plt.xlabel("Probability")
-    # plt.ylabel("Average Bias")
-    # if first_coin_prob:
-    #     plt.title(f"Average Bias of First Coin P(H)={first_coin_prob} vs Other Coin Probability, Model: {model_name}")
-    # else:
-    #     plt.title(f"Average Bias vs Probability, Model: {model_name}")
-    # # plt.xticks(probs)
-    # plt.axhline(y=0, color='k')
-    # plt.show()
 
     # plot a figure of the average bias for the last 3 epochs for each probability
     plt.figure(figsize=(12, 8))
@@ -184,7 +191,7 @@ def plot_final_results(prefix, dirs, model_name, col_index=0, first_coin_prob=No
     for prob_str in dirs:
         biases = []
         errors = []
-        for i in range(1, 4):
+        for i in range(1, 8):
             if first_coin_prob:
                 prob_dir = PROJECT_DIR / (prefix + f"_{i}_p{first_coin_prob}-{prob_str}")
             else:
@@ -227,7 +234,6 @@ def plot_final_results(prefix, dirs, model_name, col_index=0, first_coin_prob=No
     plt.figure(figsize=(12, 8))
     plt.plot(probs, avg_error, 'ro')
     plt.plot(probs, avg_error)
-    # plt.errorbar(probs, avg_error, yerr=std_error, fmt='o', color='r', ecolor='r', capsize=5)
     plt.xlabel("Probability")
     plt.ylabel("Average Error")
     if first_coin_prob and not col_index:
@@ -240,7 +246,7 @@ def plot_final_results(prefix, dirs, model_name, col_index=0, first_coin_prob=No
     plt.axhline(y=0, color='k')
     plt.show()
 
-    print("Done")
+    print("Done!")
 
 
 
@@ -252,18 +258,26 @@ def main():
     # plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_05, "gpt2", col_index=1, first_coin_prob="05")
     # plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_05, "gpt2-medium", col_index=1, first_coin_prob="05")
     # plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_05, "gpt2-large", col_index=1, first_coin_prob="05")
-    #
+
     # plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_09, "gpt2", col_index=1, first_coin_prob="09")
     # plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_09, "gpt2-medium", col_index=1, first_coin_prob="09")
     # plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_09, "gpt2-large", col_index=1, first_coin_prob="09")
 
-    plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_05, "gpt2", col_index=0, first_coin_prob="05")
-    plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_05, "gpt2-medium", col_index=0, first_coin_prob="05")
-    plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_05, "gpt2-large", col_index=0, first_coin_prob="05")
+    # plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_10, "gpt2", col_index=1, first_coin_prob="10")
+    # plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_10, "gpt2-medium", col_index=1, first_coin_prob="10")
+    # plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_10, "gpt2-large", col_index=1, first_coin_prob="10")
 
-    # plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_09, "gpt2", col_index=0, first_coin_prob="09")
-    # plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_09, "gpt2-medium", col_index=0, first_coin_prob="09")
-    # plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_09, "gpt2-large", col_index=0, first_coin_prob="09")
+    # plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_05, "gpt2", col_index=0, first_coin_prob="05")
+    # plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_05, "gpt2-medium", col_index=0, first_coin_prob="05")
+    # plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_05, "gpt2-large", col_index=0, first_coin_prob="05")
+
+    plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_09, "gpt2", col_index=0, first_coin_prob="09")
+    plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_09, "gpt2-medium", col_index=0, first_coin_prob="09")
+    plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_09, "gpt2-large", col_index=0, first_coin_prob="09")
+
+    # plot_final_results("two_coins_more_samples", TWO_COIN_DIRS_10, "gpt2", col_index=0, first_coin_prob="10")
+    # plot_final_results("two_coins_more_samples_medium", TWO_COIN_DIRS_10, "gpt2-medium", col_index=0, first_coin_prob="10")
+    # plot_final_results("two_coins_more_samples_large", TWO_COIN_DIRS_10, "gpt2-large", col_index=0, first_coin_prob="10")
 
     # plot_coin_exp("one_coin_more_samples_1_p", ONE_COIN_DIRS, "gpt2")
     # plot_coin_exp(ONE_COIN_SMALL, ONE_COIN_DIRS, "gpt2")

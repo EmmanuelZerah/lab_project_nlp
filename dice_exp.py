@@ -1,5 +1,6 @@
 
 import argparse
+import os
 import numpy as np
 import pandas as pd
 import torch
@@ -16,11 +17,12 @@ DATASET_TYPE = "first_known"
 
 SAMPLES_NUM = 2000
 NUM_EPOCHS = 10
+BATCH_SIZE = 8
 SEED = 37
 EPSILON = 0.05
 
 MODEL_NAME = "gpt2"
-PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/second_dice_exp"
+PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/second_dice_exp/"
 TRAINING_NAME = "debug"
 INCLUDE_DATETIME = False
 
@@ -97,6 +99,7 @@ def create_dice_dataset(dice_sum, dataset_type, size, output_folder, first_die=N
         empirical_df = pd.DataFrame({'empirical_probs_unknown': empirical_prob_unknown})
         empirical_dfs.append(empirical_df)
 
+    os.makedirs(output_folder, exist_ok=True)
     empirical_df = pd.concat(empirical_dfs, axis=1)
     empirical_df.to_csv(f"{output_folder}/empirical_probs.csv")
 
@@ -200,7 +203,7 @@ def train_model(model, tokenizer, train_dataset, eval_dataset, dice_sum, first_d
         output_dir=f"{output_folder}/model_output",
         eval_strategy="epoch",
         learning_rate=7e-5,
-        per_device_train_batch_size=8,
+        per_device_train_batch_size=BATCH_SIZE,
         num_train_epochs=NUM_EPOCHS,
         save_strategy="no",
         save_total_limit=0,
