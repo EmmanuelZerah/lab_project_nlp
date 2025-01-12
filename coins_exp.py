@@ -10,25 +10,25 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel, TrainingArguments, Trai
 from utils import prepare_dataset, save_model
 from datetime import datetime
 
-
 COIN_PROBS = [0.5, 0.9]
 
 SAMPLES_NUM = 2000
 NUM_EPOCHS = 10
-BATCH_SIZE = 128
 EPSILON = 0.05
+BATCH_SIZE = 32
 
 MODEL_NAME = "gpt2"
 PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/batch_exp/"
 TRAINING_NAME = "debug"
 INCLUDE_DATETIME = False
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--training_name", type=str, help="Training name", default=TRAINING_NAME)
     parser.add_argument("-p", "--prob_list", nargs="+", help="Coin probabilities", default=COIN_PROBS)
     parser.add_argument("-m", "--model_name", type=str, help="Model name", default=MODEL_NAME)
-    parser.add_argument("-s", "--seed", type=int, help="Seed", default=np.random.randint(0, 1000))
+    parser.add_argument("-s", "--seed", type=int, help="Seed", default=np.random.randint(1000))
     args = parser.parse_args()
     for i in range(len(args.prob_list)):
         args.prob_list[i] = float(args.prob_list[i])
@@ -153,6 +153,8 @@ class LastTokenTrainer(Trainer):
 
 
 def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, output_folder, model_name, seed):
+    torch.cuda.empty_cache()
+
     training_args = TrainingArguments(
         output_dir=f"{output_folder}/model_output",
         eval_strategy="epoch",
@@ -248,6 +250,7 @@ def main():
         output_folder = PROJECT_DIR + args.training_name + datetime.now().strftime("%y%m%d-%H%M")
     else:
         output_folder = PROJECT_DIR + args.training_name
+    print(f"Batch Size: {BATCH_SIZE}")
     print("Loading dataset...")
     train_dataset, eval_dataset = load_coin_dataset(tokenizer, args.prob_list, SAMPLES_NUM, args.seed, output_folder)
     print("Training the model...")
