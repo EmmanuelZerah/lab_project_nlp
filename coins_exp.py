@@ -6,29 +6,31 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
-from transformers import GPT2Tokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, TrainerCallback
+from transformers import GPT2Tokenizer, GPT2LMHeadModel, TrainingArguments, Trainer, TrainerCallback, GPT2Config
 from utils import prepare_dataset, save_model
 from datetime import datetime
 
 COIN_PROBS = [0.5, 0.9]
 
-SAMPLES_NUM = 2000
+SAMPLES_NUM = 10
 NUM_EPOCHS = 10
 EPSILON = 0.05
-BATCH_SIZE = 32
+BATCH_SIZE = 4
 
 MODEL_NAME = "gpt2"
-PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/batch_exp/"
+PROJECT_DIR = "/cs/labs/oabend/manuz/lab_project/runs/"
 TRAINING_NAME = "debug"
 INCLUDE_DATETIME = False
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
+    parser.add_argument("-e", "--exp_dir", type=str, help="Experiment directory", default="debug")
     parser.add_argument("-t", "--training_name", type=str, help="Training name", default=TRAINING_NAME)
     parser.add_argument("-p", "--prob_list", nargs="+", help="Coin probabilities", default=COIN_PROBS)
     parser.add_argument("-m", "--model_name", type=str, help="Model name", default=MODEL_NAME)
     parser.add_argument("-s", "--seed", type=int, help="Seed", default=np.random.randint(1000))
+    parser.add_argument("-b", "--batch_size", type=int, help="Batch size", default=BATCH_SIZE)
     args = parser.parse_args()
     for i in range(len(args.prob_list)):
         args.prob_list[i] = float(args.prob_list[i])
@@ -56,11 +58,11 @@ def create_coin_dataset(probs, size, output_folder):
 
 def load_coin_dataset(tokenizer, coin_probs, samples_num, seed, output_folder):
     pd_dataset = create_coin_dataset(coin_probs, samples_num, output_folder)
-    train_dataset, eval_dataset  = prepare_dataset(tokenizer, pd_dataset, samples_num, seed)
+    train_dataset, eval_dataset  = prepare_dataset(tokenizer, pd_dataset)
     return train_dataset, eval_dataset
 
 
-def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
+def save_and_visualize_info(model_probs, coin_probs, h_logits, t_logits, model_name, output_folder):
 
     # Save the model probabilities to a csv file
     df = pd.DataFrame()
@@ -107,6 +109,24 @@ def save_and_visualize_info(model_probs, coin_probs, model_name, output_folder):
     plt.savefig(output_folder + f"/model_probs_" + probs_strs + ".png")
     # plt.show()
 
+    # plot the logits of the model for each coin
+    plt.figure(figsize=(14, 8))
+    plt.suptitle(f"Model Logits vs Epoch. Coins Probabilities: {coin_probs}")
+
+    for i, prob in enumerate(coin_probs):
+        plt.subplot(1, len(coin_probs), i + 1)
+        plt.plot(np.arange(1, len(h_logits)+1), h_logits[:, i], label="H")
+        plt.plot(np.arange(1, len(t_logits)+1), t_logits[:, i], label="T")
+        plt.xlabel("Epochs")
+        plt.ylabel("Model Logit")
+        plt.title(f"Model Logits for P(H)={prob}")
+        plt.legend()
+        plt.xticks(np.arange(2, len(h_logits)+1, 4))
+
+    # Save the figure
+    plt.savefig(output_folder + f"/model_logits_" + probs_strs + ".png")
+    plt.show()
+
 
 class EvalCallback(TrainerCallback):
 
@@ -116,16 +136,20 @@ class EvalCallback(TrainerCallback):
         self.num_epochs = num_epochs
         self.coin_probs = coin_probs
         self.model_probs = np.zeros((num_epochs, len(coin_probs)))
+        self.h_logits = np.zeros((num_epochs, len(coin_probs)))
+        self.t_logits = np.zeros((num_epochs, len(coin_probs)))
         self.model_name = model_name
         self.output_folder = output_folder
 
 
     def on_epoch_end(self, args, state, control, **kwargs):
         print(f"Epoch {int(state.epoch)}/{NUM_EPOCHS} has ended.")
-        h_prob = eval_model(kwargs["model"], self.tokenizer, self.coin_probs)
+        h_prob, h_logit, t_logit = eval_model(kwargs["model"], self.tokenizer, self.coin_probs)
         self.model_probs[int(state.epoch) - 1] = h_prob
+        self.h_logits[int(state.epoch) - 1] = h_logit
+        self.t_logits[int(state.epoch) - 1] = t_logit
         if state.epoch == self.num_epochs:
-            save_and_visualize_info(self.model_probs, self.coin_probs, self.model_name, self.output_folder)
+            save_and_visualize_info(self.model_probs, self.coin_probs, self.h_logits, self.t_logits, self.model_name, self.output_folder)
 
 
 class LastTokenTrainer(Trainer):
@@ -135,7 +159,7 @@ class LastTokenTrainer(Trainer):
         self.tokenizer = tokenizer
 
     # Loss computation based only on the last token
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=8):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=BATCH_SIZE):
         # Forward pass
         outputs = model(**inputs)
         logits = outputs.logits
@@ -152,14 +176,14 @@ class LastTokenTrainer(Trainer):
         return (loss, outputs) if return_outputs else loss
 
 
-def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, output_folder, model_name, seed):
+def train_model(model, tokenizer, train_dataset, eval_dataset, coin_probs, output_folder, model_name, batch_size, seed):
     torch.cuda.empty_cache()
 
     training_args = TrainingArguments(
         output_dir=f"{output_folder}/model_output",
         eval_strategy="epoch",
         learning_rate=7e-5,
-        per_device_train_batch_size=BATCH_SIZE,
+        per_device_train_batch_size=batch_size,
         num_train_epochs=NUM_EPOCHS,
         save_strategy="no",
         save_total_limit=0,
@@ -197,6 +221,8 @@ def eval_model(model, tokenizer, coin_probs, after_training=False, output_folder
     t_token_id = tokenizer.convert_tokens_to_ids("T")
 
     h_probs = []
+    h_logits = []
+    t_logits = []
     for i, prob in enumerate(coin_probs):
         prompt = (f"John is flipping a biased coin with the following probabilities: P(H) = {prob:.2f} and P(T) = {(1 - prob):.2f}. "
                   f"Complete the sentence with either 'H' or 'T' only: John flipped the coin and it landed on ")
@@ -221,13 +247,30 @@ def eval_model(model, tokenizer, coin_probs, after_training=False, output_folder
         h_prob = probabilities[0, h_token_id].item()
         t_prob = probabilities[0, t_token_id].item()
 
+        # Extract the logits for 'H' and 'T'
+        h_logit = next_token_logits[0, h_token_id].item()
+        t_logit = next_token_logits[0, t_token_id].item()
+
         print(f"Coin {i + 1} with probability {prob}")
         print("----")
         print(f"Probability of 'H': {h_prob:.5f}")
         print(f"Probability of 'T': {t_prob:.5f}")
+        print("----")
+        print(f"Logit of 'H': {h_logit:.5f}")
+        print(f"Logit of 'T': {t_logit:.5f}")
         print("********************************************")
 
         h_probs.append(h_prob)
+        h_logits.append(h_logit)
+        t_logits.append(t_logit)
+
+    loss = 0
+    for i, prob in enumerate(coin_probs):
+        loss += (-prob * np.log(prob) - (1 - prob) * np.log(1 - prob)) / len(coin_probs)
+
+    print("\nLoss with optimal probabilities:")
+    print(f"{loss:.5f}")
+
 
     print("################  End of Evaluation  #####################")
 
@@ -237,7 +280,7 @@ def eval_model(model, tokenizer, coin_probs, after_training=False, output_folder
             probs_df[f"model_prob_{prob}"] = [h_probs[i]]
         probs_df.to_csv(f"{output_folder}/final_model_probs.csv", index=False)
 
-    return h_probs
+    return h_probs, h_logits, t_logits
 
 
 def main():
@@ -247,14 +290,14 @@ def main():
     np.random.seed(args.seed)
     tokenizer.pad_token = tokenizer.eos_token  # Set the padding token to the end-of-sequence token
     if INCLUDE_DATETIME:
-        output_folder = PROJECT_DIR + args.training_name + datetime.now().strftime("%y%m%d-%H%M")
+        output_folder = PROJECT_DIR + args.exp_dir + "/" + args.training_name + datetime.now().strftime("%y%m%d-%H%M")
     else:
-        output_folder = PROJECT_DIR + args.training_name
-    print(f"Batch Size: {BATCH_SIZE}")
+        output_folder = PROJECT_DIR + args.exp_dir + "/" + args.training_name
+    print(f"Batch Size: {args.batch_size}")
     print("Loading dataset...")
     train_dataset, eval_dataset = load_coin_dataset(tokenizer, args.prob_list, SAMPLES_NUM, args.seed, output_folder)
     print("Training the model...")
-    model = train_model(model, tokenizer, train_dataset, eval_dataset, args.prob_list, output_folder, args.model_name, args.seed)
+    model = train_model(model, tokenizer, train_dataset, eval_dataset, args.prob_list, output_folder, args.model_name, args.batch_size, args.seed)
     print("Final evaluation of the model\n\n")
     eval_model(model, tokenizer, args.prob_list, after_training=True, output_folder=output_folder)
     # print("Saving the model...")
